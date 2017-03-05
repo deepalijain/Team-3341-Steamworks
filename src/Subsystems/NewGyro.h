@@ -21,11 +21,11 @@ namespace wvrobotics {
 
 class NewGyro {
 	enum State {
-			UNCONNECTED = 0,
-			WAIT = 1,
-			INITIALIZATION = 2,
-			CALIBRATING = 3,
-			READY
+		UNCONNECTED = 0,
+		WAIT = 1,
+		INITIALIZATION = 2,
+		CALIBRATING = 3,
+		READY
 	};
 
     typedef enum
@@ -103,36 +103,40 @@ class NewGyro {
     static constexpr double GYRO_SENSITIVITY_500DPS  = 0.0175;    // Roughly 45/256
     static constexpr double GYRO_SENSITIVITY_2000DPS = 0.070;      // Roughly 18/256
 private:
+    static constexpr double IIR_CONST = 0.8;
 	State mState;
 	I2C m_i2c;
 	int overrunGyroCount;
 	int count;
-	GyroAxis sum,gAxis;
+	GyroAxis sum, gAxis;
 	int calibrationcount;
 	double conversionFactor = 0;
 	float zAxisArray[];
+
 	float avg = 0;
     std::clock_t clock_initial;
     int timeDiff = 0;
     std::clock_t clock_gyro;
     std::chrono::high_resolution_clock::time_point t_start;
     std::chrono::high_resolution_clock::time_point gyroFinal;
+
     int TOTAL_COUNT = 200;
     const unsigned char ADDRESS = 0xF;
-    int waitTime = 3;
     unsigned char whoAmI = 0b11010111;
     bool isVerified;
+    int i = 0;
+    static constexpr int WAITTIME = 4;
 
 public:
 	NewGyro(I2C::Port port, int deviceAddress);
 	virtual ~NewGyro();
+	GyroAxis* getAxis();
 	void periodicProcessing(int startupTime);
 	void instantiateGyro();
 	void initializeGyro();
 	void ready();
 	void checkForZAxis(int counterGyro);
-	GyroAxis readGyroData();
-	GyroAxis* getAxis();
+	GyroAxis readGyroData(bool filter = false);
 	void resetGyro()
 	{
 		sum.setAxis(0,0,0);

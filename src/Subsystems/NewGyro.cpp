@@ -2,7 +2,7 @@
  * NewGyro.cpp
  *
  *  Created on: Oct 29, 2016
- *      Author: nidhi
+ *      Author: Deepali Jain
  */
 
 #include "NewGyro.h"
@@ -26,8 +26,9 @@ using namespace std::chrono_literals;
 namespace wvrobotics {
 
 NewGyro::NewGyro(I2C::Port port, int deviceAddress)
-: m_i2c(port, deviceAddress) {
+    : m_i2c(port, deviceAddress) {
 
+	m_i2c.Write(GYRO_REGISTER_CTRL_REG1, 0x00);
 	m_i2c.Write(GYRO_REGISTER_CTRL_REG1, 0x0F);
 
 	//float zAxisArray[10] = {};
@@ -39,22 +40,24 @@ NewGyro::NewGyro(I2C::Port port, int deviceAddress)
 	overrunGyroCount = 0;
 	isVerified = m_i2c.VerifySensor(ADDRESS, 1, &whoAmI);
 	if(isVerified)
-		mState = INITIALIZATION;
+		mState = WAIT;
 	std::cout << "locate sensor: "<< (int)isVerified << std::endl;
 	clock_initial = std::clock();
 	t_start = std::chrono::high_resolution_clock::now();
 	clock_gyro = std::clock();
-	m_i2c.Write(GYRO_REGISTER_CTRL_REG1, 0x00);
+	//m_i2c.Write(GYRO_REGISTER_CTRL_REG1, 0x00);
 
 	//if(isVerified)
-	//mState = CALIBRATING;
+		//mState = CALIBRATING;
 
-	std::cout << "gyro state " << mState << std::endl;
-	/*
+	//std::cout << "gyro state " << mState << std::endl;
+
+	//calibration code, will be deleted later
+/*
   HAL_Report(HALUsageReporting::kResourceType_ADXL345,
              HALUsageReporting::kADXL345_I2C, 0);
   LiveWindow::GetInstance()->AddSensor("ADXL345_I2")
-	 */
+  */
 }
 
 NewGyro::~NewGyro() {
@@ -64,10 +67,11 @@ NewGyro::~NewGyro() {
 void NewGyro::periodicProcessing(int startupTime)
 {
 	isVerified = m_i2c.VerifySensor(ADDRESS, 1, &whoAmI);
+
 		if(isVerified == false)
 		{
 			mState=UNCONNECTED;
-			std::cout << "gyro state " << mState << std::endl;
+			//std::cout << "gyro state " << mState << std::endl;
 		}
 		//subtract gyro clock from robot clock and if it is more than a set time set mstate=calibration
 
@@ -76,47 +80,50 @@ void NewGyro::periodicProcessing(int startupTime)
 		switch(mState)
 		{
 			case UNCONNECTED:
-				std::cout << "STATE: " << mState << std::endl;
+				//std::cout << "STATE: " << mState << std::endl;
 				std::cout << "Your gyro is not connected."<< std::endl;
 				break;
 			case WAIT:
-				std::cout << "STATE: " << mState << std::endl;
+				//std::cout << "STATE: " << mState << std::endl;
 				time_span = std::chrono::duration_cast<std::chrono::duration<double>>(t_end - t_start);
 
 				if(time_span.count() > startupTime)
 				{
 					mState = INITIALIZATION;
+					initializeGyro();
 				}
 				break;
 			case INITIALIZATION:
 
-				std::cout << "STATE: " << mState << std::endl;
+				//std::cout << "STATE: " << mState << std::endl;
 				time_span = std::chrono::duration_cast<std::chrono::duration<double>>(t_end - t_start);
+
 				//std::cout << "It took me " << time_span.count() << " seconds" << std::endl;
 				//timeDiff = clock_initial - clock_gyro;
 				//std::cout << "time difference: " << timeDiff << std::endl;
-				if(time_span.count() > waitTime)
+				if(time_span.count() > WAITTIME)
 				{
-					initializeGyro();
 					mState = CALIBRATING;
-					std::cout << "gyro state " << mState << std::endl;
+					sum.setAxis(0,0,0);
+					count = 0;
+					//std::cout << "gyro state " << mState << std::endl;
 				}
 				break;
 
 			case CALIBRATING:
-				std::cout << "STATE: " << mState << std::endl;
+				//std::cout << "STATE: " << mState << std::endl;
 				readGyroData();
 				if(TOTAL_COUNT < count)
 				{
-					//avg = sum.getzAxis()/count;
+					avg = sum.getzAxis()/count;
 					sum.setAxis(0,0,0);
 					count = 0;
+					//time_span = 0;
 					mState = READY;
-					std::cout << "gyro state " << mState << std::endl;
+					//std::cout << "gyro state " << mState << std::endl;
 				}
 				break;
 			case READY:
-				std::cout << "STATE: " << mState << std::endl;
 				int temp = count;
 				readGyroData();
 				int totalCount = count - temp;
@@ -124,8 +131,12 @@ void NewGyro::periodicProcessing(int startupTime)
 				{
 					sum.overrunofAxis();
 					sum.setzAxis(sum.getzAxis() - (double)(avg*totalCount));
-					//std::cout << "Gyro z axis: " << (sum.getzAxis() - (double)(avg*totalCount)) << std::endl;
+//					if(i % 80 == 0)
+//						std::cout << "Gyro z axis: " << (sum.getzAxis()) << std::endl;
+//					i++;
+
 				}
+
 		// determine the number of new samples read
 		// if there is new data, subtract out the calibration value multiplied by the number of new samples from the data
 				break;
@@ -136,7 +147,7 @@ void NewGyro::periodicProcessing(int startupTime)
 void NewGyro::initializeGyro()
 {
 
-	/* Set CTRL_REG1 (0x20)
+	  /* Set CTRL_REG1 (0x20)
 	   ====================================================================
 	   BIT  Symbol    Description                                   Default
 	   ---  ------    --------------------------------------------- -------
@@ -147,30 +158,31 @@ void NewGyro::initializeGyro()
 	     1  YEN       Y-axis enable (0 = disabled, 1 = enabled)           1
 	     0  XEN       X-axis enable (0 = disabled, 1 = enabled)           1 */
 
-	/* Reset then switch to normal mode and enable all three channels */
+	  /* Reset then switch to normal mode and enable all three channels */
 	double dataRate = 94.7;
 
-	//std::this_thread::sleep_for(2s);
-	//gyroFinal = std::chrono::high_resolution_clock::now();
-	//std::chrono::duration<double> time_span;
-	//time_span = std::chrono::duration_cast<std::chrono::duration<double>>(gyroFinal - t_start);
+	  //std::this_thread::sleep_for(2s);
+	  //gyroFinal = std::chrono::high_resolution_clock::now();
+	  //std::chrono::duration<double> time_span;
+	  //time_span = std::chrono::duration_cast<std::chrono::duration<double>>(gyroFinal - t_start);
 	// m_i2c.Write(GYRO_REGISTER_CTRL_REG1, 0x00);
-	m_i2c.Write(GYRO_REGISTER_CTRL_REG1, 0x0F);
+	  m_i2c.Write(GYRO_REGISTER_CTRL_REG1, 0x0F);
+	  m_i2c.Write(GYRO_REGISTER_CTRL_REG2, 0b00000011);
 
 
-	/* ------------------------------------------------------------------ */
+	  /* ------------------------------------------------------------------ */
 
-	/* Set CTRL_REG2 (0x21)
+	  /* Set CTRL_REG2 (0x21)
 	   ====================================================================
 	   BIT  Symbol    Description                                   Default
 	   ---  ------    --------------------------------------------- -------
 	   5-4  HPM1/0    High-pass filter mode selection                    00
 	   3-0  HPCF3..0  High-pass filter cutoff frequency selection      0000 */
 
-	/* Nothing to do ... keep default values */
-	/* ------------------------------------------------------------------ */
+	  /* Nothing to do ... keep default values */
+	  /* ------------------------------------------------------------------ */
 
-	/* Set CTRL_REG3 (0x22)
+	  /* Set CTRL_REG3 (0x22)
 	   ====================================================================
 	   BIT  Symbol    Description                                   Default
 	   ---  ------    --------------------------------------------- -------
@@ -183,10 +195,10 @@ void NewGyro::initializeGyro()
 	     1  I2_ORun   FIFO overrun int on DRDY/INT2 (0=dsbl,1=enbl)       0
 	     0  I2_Empty  FIFI empty int on DRDY/INT2 (0=dsbl,1=enbl)         0 */
 
-	/* Nothing to do ... keep default values */
-	/* ------------------------------------------------------------------ */
+	  /* Nothing to do ... keep default values */
+	  /* ------------------------------------------------------------------ */
 
-	/* Set CTRL_REG4 (0x23)
+	  /* Set CTRL_REG4 (0x23)
 	   ====================================================================
 	   BIT  Symbol    Description                                   Default
 	   ---  ------    --------------------------------------------- -------
@@ -199,26 +211,26 @@ void NewGyro::initializeGyro()
 	                                  11 = 2000 dps
 	     0  SIM       SPI Mode (0=4-wire, 1=3-wire)                       0 */
 
-	/* Adjust resolution if requested */
-	auto range = GYRO_RANGE_500DPS;
-	switch(range)
-	{
-	case GYRO_RANGE_250DPS:
-		m_i2c.Write(GYRO_REGISTER_CTRL_REG4, 0x00);
-		conversionFactor = GYRO_SENSITIVITY_250DPS/dataRate;
-		break;
-	case GYRO_RANGE_500DPS:
-		m_i2c.Write(GYRO_REGISTER_CTRL_REG4, 0x10);
-		conversionFactor = GYRO_SENSITIVITY_500DPS/dataRate;
-		break;
-	case GYRO_RANGE_2000DPS:
-		m_i2c.Write(GYRO_REGISTER_CTRL_REG4, 0x20);
-		conversionFactor = GYRO_SENSITIVITY_2000DPS/dataRate;
-		break;
-	}
-	/* ------------------------------------------------------------------ */
+	  /* Adjust resolution if requested */
+	  auto range = GYRO_RANGE_500DPS;
+	  switch(range)
+	  {
+	    case GYRO_RANGE_250DPS:
+	    	m_i2c.Write(GYRO_REGISTER_CTRL_REG4, 0x00);
+	    	conversionFactor = GYRO_SENSITIVITY_250DPS/dataRate;
+	      break;
+	    case GYRO_RANGE_500DPS:
+	    	m_i2c.Write(GYRO_REGISTER_CTRL_REG4, 0x10);
+	    	conversionFactor = GYRO_SENSITIVITY_500DPS/dataRate;
+	      break;
+	    case GYRO_RANGE_2000DPS:
+	    	m_i2c.Write(GYRO_REGISTER_CTRL_REG4, 0x20);
+	    	conversionFactor = GYRO_SENSITIVITY_2000DPS/dataRate;
+	      break;
+	  }
+	  /* ------------------------------------------------------------------ */
 
-	/* Set CTRL_REG5 (0x24)
+	  /* Set CTRL_REG5 (0x24)
 	   ====================================================================
 	   BIT  Symbol    Description                                   Default
 	   ---  ------    --------------------------------------------- -------
@@ -228,15 +240,15 @@ void NewGyro::initializeGyro()
 	   3-2  INT1_SEL  INT1 Selection config                              00
 	   1-0  OUT_SEL   Out selection config                               00 */
 
-	/* Nothing to do ... keep default values */
-	/* ------------------------------------------------------------------ */
+	  /* Nothing to do ... keep default values */
+	  /* ------------------------------------------------------------------ */
 
-	//return true;
+	  //return true;
 
-	m_i2c.Write(GYRO_REGISTER_CTRL_REG5, 0b01000000);
+	  m_i2c.Write(GYRO_REGISTER_CTRL_REG5, 0b01010000);
 
-	//m_i2c.Write(GYRO_REGISTER_FIFO_CTRL_REG, FIFO_BYPASS_MODE);
-	m_i2c.Write(GYRO_REGISTER_FIFO_CTRL_REG, FIFO_DYNAMIC_STREAM_MODE | 30); //set the FIFO size to 30 as detailed on page 22 of the spec
+	  //m_i2c.Write(GYRO_REGISTER_FIFO_CTRL_REG, FIFO_BYPASS_MODE);
+	  m_i2c.Write(GYRO_REGISTER_FIFO_CTRL_REG, FIFO_DYNAMIC_STREAM_MODE | 30); //set the FIFO size to 30 as detailed on page 22 of the spec
 
 }
 
@@ -245,7 +257,7 @@ GyroAxis* NewGyro::getAxis()
 	return &sum;
 }
 
-GyroAxis NewGyro::readGyroData() //read gyro status, read FIFO source, read GYRO_REGISTER_OUT_X_L
+GyroAxis NewGyro::readGyroData(bool filter) //read gyro status, read FIFO source, read GYRO_REGISTER_OUT_X_L
 {
 	short data[3];
 	uint8_t registerVal;
@@ -273,23 +285,29 @@ GyroAxis NewGyro::readGyroData() //read gyro status, read FIFO source, read GYRO
 		{
 			//m_i2c.Read(GYRO_REGISTER_OUT_X_L | AUTO_INCREMENT, 6, (uint8_t*)data);
 
-			m_i2c.Read(GYRO_REGISTER_OUT_X_L, 1, byteData);
-			m_i2c.Read(GYRO_REGISTER_OUT_X_H, 1, byteData + 1);
-			m_i2c.Read(GYRO_REGISTER_OUT_Y_L, 1, byteData + 2);
-			m_i2c.Read(GYRO_REGISTER_OUT_Y_H, 1, byteData + 3);
-			m_i2c.Read(GYRO_REGISTER_OUT_Z_L, 1, byteData + 4);
-			m_i2c.Read(GYRO_REGISTER_OUT_Z_H, 1, byteData + 5);
+		    m_i2c.Read(GYRO_REGISTER_OUT_X_L, 1, byteData);
+		    m_i2c.Read(GYRO_REGISTER_OUT_X_H, 1, byteData + 1);
+		    m_i2c.Read(GYRO_REGISTER_OUT_Y_L, 1, byteData + 2);
+		    m_i2c.Read(GYRO_REGISTER_OUT_Y_H, 1, byteData + 3);
+		    m_i2c.Read(GYRO_REGISTER_OUT_Z_L, 1, byteData + 4);
+		    m_i2c.Read(GYRO_REGISTER_OUT_Z_H, 1, byteData + 5);
+		    m_i2c.Read(GYRO_REGISTER_OUT_X_L | AUTO_INCREMENT, 6, discardedData);
+		    //std::cout << "SUM: " << sum.getzAxis() << std::endl;
+		    //std::cout << "DATA: " << data[2] << std::endl;
+		    //std::cout << "conversion: " << conversionFactor << std::endl;
 
+		    if(filter)
+		    	sum.addAxis(data[0]*conversionFactor, data[1]*conversionFactor, sum.getzAxis() * IIR_CONST + (data[2]*conversionFactor * (1.0 - IIR_CONST)));
+		    else
+		    	sum.addAxis(data[0]*conversionFactor, data[1]*conversionFactor, data[2]*conversionFactor);
 
-			m_i2c.Read(GYRO_REGISTER_OUT_X_L | AUTO_INCREMENT, 6, discardedData);
-			sum.addAxis(data[0]*conversionFactor, data[1]*conversionFactor, data[2]*conversionFactor);
 			count++;
 			//std::cout << "Gyro ACTUAL data: " << std::hex << data[2] <<  std::dec << std::endl;
 
 		}
 
 	}
-	return sum;
+return sum;
 }
 
 
@@ -322,3 +340,4 @@ std::shared_ptr<ITable> ADXL345_I2C::GetTable() const { return m_table; }**/
 
 
 } /* namespace wvrobotics */
+
